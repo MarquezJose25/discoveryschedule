@@ -2,12 +2,13 @@
 //  STATE
 // ══════════════════════════════════════════
 const S = {
-  blocks:[],      // {id,start,end,type,label}
-  grades:[],      // strings
-  subjects:[],    // {id,name,abbr,ci}  ci=colorIdx
-  gradeSubjs:{},  // gradeId -> [{sid,hpw}]
-  teachers:[],    // {id,name,tutorGrade,assignments:[{sid,gids:[]}]}
-  schedules:{},   // gradeId -> day -> blockId -> {sid,tid,tids?,locked?} | null
+  blocks:[],          // {id,start,end,type,label}
+  grades:[],          // strings
+  subjects:[],        // {id,name,abbr,ci}  ci=colorIdx
+  gradeSubjs:{},      // gradeId -> [{sid,hpw}]
+  teachers:[],        // {id,name,tutorGrade,assignments:[{sid,gids:[]}]}
+  schedules:{},       // gradeId -> day -> blockId -> {sid,tid,tids?,locked?} | null
+  teacherTurnos:{},   // tid -> [{day,bid}]  — turno slots per teacher (NOT in grade grids)
   tutoring:{sessionsPerWeek:1},
   turnos:{enabled:true,targetHours:28},
 };
@@ -293,6 +294,7 @@ function saveT(){
 function delT(id){
   if(!confirm('¿Eliminar docente?'))return;
   S.teachers=S.teachers.filter(t=>t.id!==id);
+  // remove from grade schedules
   Object.values(S.schedules).forEach(gs=>{
     DAYS.forEach(d=>Object.keys(gs[d]||{}).forEach(b=>{
       const cell=gs[d][b];
@@ -301,6 +303,8 @@ function delT(id){
       gs[d][b]=next;
     }));
   });
+  // remove turno slots for this teacher
+  delete S.teacherTurnos[id];
   rbTeachers();
 }
 function rbTeachers(){
@@ -336,7 +340,10 @@ function rbTeachers(){
 }
 function tWH(tid){
   let c=0;
+  // hours from grade assignments
   Object.values(S.schedules).forEach(gs=>DAYS.forEach(d=>Object.values(gs[d]||{}).forEach(c2=>{if(cellHasTeacher(c2,tid))c++;})));
+  // hours from turno slots (stored separately, not in grade grids)
+  c+=(S.teacherTurnos?.[tid]?.length||0);
   return c;
 }
 
@@ -468,7 +475,7 @@ function runGen(){
   });
 
   if(S.turnos.enabled){
-    assignTurnoSessions(toGen,tH,tS,logs);
+    assignTurnoSessions(tH,tS,logs);
   }
 
   S.teachers.forEach(t=>{
@@ -482,48 +489,38 @@ function runGen(){
     logs.map(l=>`<div class="log-item"><span style="color:${l.t==='ok'?'var(--green)':l.t==='warn'?'var(--acc)':'var(--red)'}">${icons[l.t]}</span><span>${l.m}</span></div>`).join('');
   get('btn-view').style.display='inline-flex';
 }
-function assignTurnoSessions(grades,tH,tS,logs){
+// Assigns turno slots ONLY to teachers (never to grade grids).
+// Turno slots live in S.teacherTurnos[tid] = [{day,bid}].
+function assignTurnoSessions(tH,tS,logs){
   const target=S.turnos.targetHours||28;
-  if(!grades.length||!S.teachers.length||target<=0)return;
-  const empties=[];
-  grades.forEach(g=>{
-    DAYS.forEach(day=>{
-      S.blocks.forEach(b=>{
-        if(b.type!=='class')return;
-        if(S.schedules[g]?.[day]?.[b.id]===null)empties.push({g,day,bid:b.id});
-      });
-    });
-  });
-  if(!empties.length)return;
-  const teachers=[...S.teachers];
-  let assigned=0;
-  while(empties.length){
-    teachers.sort((a,b)=>(target-(tH[b.id]||0))-(target-(tH[a.id]||0))||((tH[a.id]||0)-(tH[b.id]||0)));
-    const actives=teachers.filter(t=>(target-(tH[t.id]||0))>0);
-    if(!actives.length)break;
-    let placedAny=false;
-    for(const teacher of actives){
-      let placed=false;
-      for(let i=0;i<empties.length;i++){
-        const s=empties[i];
-        if(tS[teacher.id][s.day][s.bid])continue;
-        if(countTeacherGradeStreak(s.g,s.day,s.bid,teacher.id)>2)continue;
-        S.schedules[s.g][s.day][s.bid]={sid:TURNO_SUBJECT_ID,tid:teacher.id,tids:[teacher.id],locked:true};
-        tH[teacher.id]=(tH[teacher.id]||0)+1;
-        tS[teacher.id][s.day][s.bid]=s.g;
-        empties.splice(i,1);
-        assigned++;placed=true;placedAny=true;
-        break;
-      }
-      if(placed)break;
-    }
-    if(!placedAny)break;
-  }
-  logs.push({t:'ok',m:`Turnos asignados: ${assigned}`});
+  S.teacherTurnos={}; // always recalculate from scratch
+  if(!S.teachers.length||target<=0)return;
+  const cl=S.blocks.filter(b=>b.type==='class');
+  if(!cl.length)return;
+  let totalAssigned=0;
   S.teachers.forEach(t=>{
-    const miss=target-(tH[t.id]||0);
-    if(miss>0)logs.push({t:'warn',m:`${t.name}: faltan ${miss} h para meta; no hubo más espacios sin conflicto.`});
+    const deficit=target-(tH[t.id]||0);
+    if(deficit<=0){S.teacherTurnos[t.id]=[];return;}
+    S.teacherTurnos[t.id]=[];
+    let remaining=deficit;
+    // Spread across days first (iterate day by day, block by block)
+    for(const day of DAYS){
+      if(remaining<=0)break;
+      for(const b of cl){
+        if(remaining<=0)break;
+        // skip if teacher already assigned to a grade here
+        if(tS[t.id]?.[day]?.[b.id])continue;
+        S.teacherTurnos[t.id].push({day,bid:b.id});
+        tH[t.id]=(tH[t.id]||0)+1;
+        remaining--;
+        totalAssigned++;
+      }
+    }
+    const assigned=deficit-remaining;
+    if(assigned>0)logs.push({t:'ok',m:`${t.name}: ${assigned} turno${assigned!==1?'s':''} asignado${assigned!==1?'s':''} (total ${tH[t.id]}h/sem)` });
+    if(remaining>0)logs.push({t:'warn',m:`${t.name}: faltan ${remaining} h para la meta de ${target}h; el docente no tiene más bloques libres.`});
   });
+  if(totalAssigned>0)logs.push({t:'ok',m:`Turnos docentes: ${totalAssigned} bloques asignados en total (solo visibles en vista por docente).`});
 }
 
 function spreadPos(pos,need){
@@ -740,10 +737,10 @@ function buildGrid(g){
   html+=`</tbody></table></div>`;
   // coverage stats
   const gss=S.gradeSubjs[g]||[];
+  // Turnos are NOT in grade grids (they live in S.teacherTurnos per teacher)
   const cov=[
     ...gss.map(x=>({sid:x.sid,hpw:x.hpw})),
     ...((S.tutoring.sessionsPerWeek||0)>0?[{sid:TUTOR_SUBJECT_ID,hpw:+S.tutoring.sessionsPerWeek||0}]:[]),
-    ...(S.turnos.enabled?[{sid:TURNO_SUBJECT_ID,hpw:0}]:[]),
   ];
   if(cov.length){
     const rows=cov.map(x=>{
@@ -794,12 +791,17 @@ function buildTGrid(teacher){
         const c=gs[d]?.[b.id];
         if(cellHasTeacher(c,teacher.id))found={...c,grade:g};
       });
+      const hasTurno=!found&&(S.teacherTurnos?.[teacher.id]||[]).some(x=>x.day===d&&x.bid===b.id);
       if(found){
         const s=getSubjectMeta(found.sid);
-        const cls=s?.ci==='tutor'?'sc-tutor':s?.ci==='turno'?'sc-turno':`sc${s?.ci??0}`;
+        const cls=s?.ci==='tutor'?'sc-tutor':`sc${s?.ci??0}`;
         html+=`<td class="sch-cell filled ${cls}">
           <div class="ccont"><div class="csubj">${s?.name||'?'}</div>
           <div class="cteach">🏫 ${found.grade}</div></div></td>`;
+      } else if(hasTurno){
+        html+=`<td class="sch-cell filled sc-turno">
+          <div class="ccont"><div class="csubj">Turno</div>
+          <div class="cteach">📋 Hora libre</div></div></td>`;
       } else {
         html+=`<td class="sch-cell brk"><div class="brk-lbl" style="color:var(--t3)">—</div></td>`;
       }
@@ -808,9 +810,12 @@ function buildTGrid(teacher){
   });
   html+=`</tbody></table></div>`;
   const h=tWH(teacher.id);
-  html+=`<div class="flex fg-gap mt16">
-    <span class="tag tag-blue">📊 ${h} h/semana asignadas</span>
-    <span class="tag ${h>28?'tag-red':h>=24?'tag-acc':'tag-green'}">${h>28?'⚠️ Excede límite (28h)':h>=24?'⚡ Carga alta':'✅ Dentro del límite'}</span>
+  const target=S.turnos.targetHours||28;
+  const gradeH=h-(S.teacherTurnos?.[teacher.id]?.length||0);
+  const turnoH=S.teacherTurnos?.[teacher.id]?.length||0;
+  html+=`<div class="flex fg-gap mt16" style="flex-wrap:wrap">
+    <span class="tag tag-blue">📊 ${gradeH} h clase + ${turnoH} h turno = ${h} h/semana</span>
+    <span class="tag ${h>target?'tag-red':h>=target*0.85?'tag-acc':'tag-green'}">${h>=target?'✅ Meta cumplida ('+target+'h)':h>0?'⚠️ Faltan '+(target-h)+'h para meta':'❌ Sin horas asignadas'}</span>
   </div>`;
   return html;
 }
@@ -818,10 +823,10 @@ function buildTGrid(teacher){
 // --- OVERVIEW ---
 function renderOverV(cont){
   const cl=S.blocks.filter(b=>b.type==='class');
+  // Turnos are teacher-only; they do NOT appear in grade schedule grids
   const overviewSubjects=[
     ...S.subjects,
     ...((S.tutoring.sessionsPerWeek||0)>0?[getSubjectMeta(TUTOR_SUBJECT_ID)]:[]),
-    ...(S.turnos.enabled?[getSubjectMeta(TURNO_SUBJECT_ID)]:[]),
   ];
   let html=`<div class="card" style="background:var(--s3)">
     <h3 style="font-size:15px;margin-bottom:14px">📊 Resumen General</h3>
@@ -848,16 +853,18 @@ function renderOverV(cont){
   });
   html+=`</tbody></table></div></div>`;
   html+=`<div class="card mt16" style="background:var(--s3)"><h3 style="font-size:15px;margin-bottom:14px">👨‍🏫 Carga por Docente</h3>
-    <div class="tbl-wrap"><table><thead><tr><th>Docente</th><th>Materias</th><th>Horas/sem</th><th>Uso</th><th>Estado</th></tr></thead><tbody>`;
+    <div class="tbl-wrap"><table><thead><tr><th>Docente</th><th>Materias</th><th>Clase + Turno</th><th>Uso</th><th>Estado</th></tr></thead><tbody>`;
   S.teachers.forEach(t=>{
     const h=tWH(t.id);
     const pct=Math.round(h/28*100);
-    const hasTurno=tWH(t.id)>0&&Object.values(S.schedules).some(gs=>DAYS.some(d=>Object.values(gs[d]||{}).some(c=>c?.sid===TURNO_SUBJECT_ID&&cellHasTeacher(c,t.id))));
+    const hasTurno=(S.teacherTurnos?.[t.id]?.length||0)>0;
     const subjs=[...new Set(t.assignments.map(a=>getSubjectMeta(a.sid)?.name||'?').concat(t.tutorGrade?['Tutoría']:[]).concat(hasTurno?['Turno']:[]))].join(', ');
+    const turnoH2=(S.teacherTurnos?.[t.id]?.length||0);
+    const tgt=S.turnos.targetHours||28;
     html+=`<tr><td><strong>${t.name}</strong></td><td style="font-size:12px;color:var(--t2)">${subjs}</td>
-      <td>${h}h</td>
+      <td>${h-turnoH2}h clase + ${turnoH2}h turno = <strong>${h}h</strong></td>
       <td><div class="pbar" style="width:100px"><div class="pfill ${pct>=100?'danger':pct>=80?'warn':''}" style="width:${Math.min(pct,100)}%"></div></div></td>
-      <td><span class="tag ${h>28?'tag-red':h>=24?'tag-acc':'tag-green'}">${h>28?'⚠️ Excede':'✅'}</span></td></tr>`;
+      <td><span class="tag ${h>=tgt?'tag-green':h>0?'tag-acc':'tag-red'}">${h>=tgt?'✅ '+tgt+'h':'⚠️ '+h+'/'+tgt+'h'}</span></td></tr>`;
   });
   html+=`</tbody></table></div></div>`;
   html+=`<div class="card mt16" style="background:var(--s3)"><h3 style="font-size:15px;margin-bottom:14px">👥 Tutorías por grado</h3>
@@ -1007,7 +1014,7 @@ function loadLS(){
 }
 function resetAll(){
   if(!confirm('¿Reiniciar todo? Los datos no guardados se perderán.'))return;
-  S.blocks=[];S.grades=[];S.subjects=[];S.gradeSubjs={};S.teachers=[];S.schedules={};S.tutoring={sessionsPerWeek:1};S.turnos={enabled:true,targetHours:28};
+  S.blocks=[];S.grades=[];S.subjects=[];S.gradeSubjs={};S.teachers=[];S.schedules={};S.teacherTurnos={};S.tutoring={sessionsPerWeek:1};S.turnos={enabled:true,targetHours:28};
   sci=0;eTid=null;aRows=[];cCtx=null;
   rbBlocks();get('grade-chips').innerHTML='';rbSubjs();
   get('gsc-cont').innerHTML='';rbTeachers();goTo(0);
@@ -1022,6 +1029,7 @@ function ensureStateDefaults(){
   if(!S.turnos||typeof S.turnos!=='object')S.turnos={enabled:true,targetHours:28};
   if(typeof S.turnos.enabled!=='boolean')S.turnos.enabled=true;
   if(typeof S.turnos.targetHours!=='number')S.turnos.targetHours=28;
+  if(!S.teacherTurnos||typeof S.teacherTurnos!=='object')S.teacherTurnos={};
   S.teachers=(S.teachers||[]).map(t=>({...t,tutorGrade:t.tutorGrade||''}));
 }
 function updTutorCfg(v){
