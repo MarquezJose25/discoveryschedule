@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EduSchedule — Organizador de Horarios</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-mark">📅</div>
+    <div>
+      <h1>EduSchedule</h1>
+      <span>Organizador de Horarios Escolares</span>
+    </div>
+  </div>
+  <div class="h-actions no-print">
+    <button class="btn btn-sec btn-sm" onclick="saveLS()">💾 Guardar</button>
+    <button class="btn btn-sec btn-sm" onclick="loadLS()">📂 Cargar</button>
+    <button class="btn btn-sec btn-sm" onclick="resetAll()">🔄 Reiniciar</button>
+    <button class="btn btn-sec btn-sm" onclick="window.print()">🖨️ Imprimir</button>
+  </div>
+</header>
+
+<div class="wizard no-print">
+  <div class="wstep active" onclick="goTo(0)" id="ws0"><div class="wnum">1</div>Bloques Horarios</div>
+  <div class="wstep" onclick="goTo(1)" id="ws1"><div class="wnum">2</div>Grados &amp; Materias</div>
+  <div class="wstep" onclick="goTo(2)" id="ws2"><div class="wnum">3</div>Docentes</div>
+  <div class="wstep" onclick="goTo(3)" id="ws3"><div class="wnum">4</div>Generar</div>
+  <div class="wstep" onclick="goTo(4)" id="ws4"><div class="wnum">5</div>Ver Horarios</div>
+</div>
+
+<div class="main">
+
+<!-- ══ PASO 1 ══ -->
+<div class="section active" id="sec0">
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">
+        <div class="card-icon" style="background:rgba(245,166,35,.1)">🕐</div>
+        <div><h2>Bloques Horarios</h2><div class="card-sub">Define cada franja del día — Recreos quedan fijos y no se asignan a docentes</div></div>
+      </div>
+    </div>
+    <div class="alert al-info">ℹ️ Agrega un bloque por franja. <strong>Recreo/Descanso</strong> = fijo, no asignable. <strong>Clase</strong> = asignable a docentes. El total de horas/semana se calcula automáticamente (L–V).</div>
+    <div class="frow">
+      <div class="fg"><label>Inicio</label><input type="time" id="tb-s" value="07:00"></div>
+      <div class="fg"><label>Fin</label><input type="time" id="tb-e" value="08:00"></div>
+      <div class="fg"><label>Tipo</label>
+        <select id="tb-t">
+          <option value="class">📖 Clase</option>
+          <option value="break">☕ Recreo / Descanso</option>
+          <option value="other">📌 Otro</option>
+        </select>
+      </div>
+      <div class="fg"><label>Etiqueta (opcional)</label><input type="text" id="tb-lbl" placeholder="ej: 1er bloque" style="width:160px"></div>
+      <div class="fg" style="justify-content:flex-end"><button class="btn btn-acc" onclick="addBlock()">+ Agregar</button></div>
+    </div>
+    <div class="tbl-wrap">
+      <table><thead><tr><th>#</th><th>Inicio</th><th>Fin</th><th>Duración</th><th>Tipo</th><th>Etiqueta</th><th></th></tr></thead>
+      <tbody id="tb-body"></tbody></table>
+    </div>
+    <div class="divider"></div>
+    <div class="stats">
+      <div class="stat"><div class="stat-val" id="st-total">0</div><div class="stat-lbl">Bloques</div></div>
+      <div class="stat"><div class="stat-val" id="st-class">0</div><div class="stat-lbl">De clase</div></div>
+      <div class="stat"><div class="stat-val" id="st-hday">0h</div><div class="stat-lbl">Clase/día</div></div>
+      <div class="stat"><div class="stat-val" id="st-hweek">0h</div><div class="stat-lbl">Clase/semana</div></div>
+    </div>
+    <div class="flex fbet mt16 no-print">
+      <button class="btn btn-sec" onclick="loadDefault()">📋 Cargar horario de ejemplo</button>
+      <button class="btn btn-acc btn-lg" onclick="goTo(1)">Continuar → Grados</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ PASO 2 ══ -->
+<div class="section" id="sec1">
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">
+        <div class="card-icon" style="background:rgba(91,156,246,.1)">🏫</div>
+        <div><h2>Grados &amp; Materias</h2><div class="card-sub">Define grados, catálogo de materias y qué materias tiene cada grado</div></div>
+      </div>
+    </div>
+
+    <h3 style="font-size:14px;color:var(--t2);margin-bottom:12px">1. Genera los grados</h3>
+    <div class="frow">
+      <div class="fg"><label>Desde el grado</label><input type="number" id="gf" value="1" min="1" max="12"></div>
+      <div class="fg"><label>Hasta</label><input type="number" id="gt" value="6" min="1" max="12"></div>
+      <div class="fg"><label>Prefijo</label><input type="text" id="gpfx" value="Grado" style="width:120px"></div>
+      <div class="fg"><label>Secciones (ej: A,B,C)</label><input type="text" id="gsec" placeholder="vacío = sin sección" style="width:170px"></div>
+      <div class="fg" style="justify-content:flex-end"><button class="btn btn-acc" onclick="genGrades()">Generar</button></div>
+    </div>
+    <div class="chip-list mb14" id="grade-chips"></div>
+    <div class="divider"></div>
+
+    <h3 style="font-size:14px;color:var(--t2);margin-bottom:10px">2. Catálogo global de materias</h3>
+    <div class="frow">
+      <div class="fg"><label>Nombre</label><input type="text" id="subj-n" placeholder="ej: Matemáticas" style="width:190px"></div>
+      <div class="fg"><label>Abrev.</label><input type="text" id="subj-a" placeholder="MAT" style="width:70px" maxlength="5"></div>
+      <div class="fg" style="justify-content:flex-end"><button class="btn btn-acc" onclick="addSubj()">+ Agregar</button></div>
+    </div>
+    <div id="subj-empty" class="empty"><div class="eicon">📚</div><p>Sin materias aún</p></div>
+    <div class="tbl-wrap" id="subj-tbl" style="display:none">
+      <table><thead><tr><th>#</th><th>Materia</th><th>Abrev.</th><th>Color</th><th></th></tr></thead>
+      <tbody id="subj-body"></tbody></table>
+    </div>
+    <div class="divider"></div>
+
+    <h3 style="font-size:14px;color:var(--t2);margin-bottom:10px">3. Materias por grado (con horas semanales)</h3>
+    <div class="alert al-warn mb14">⚠️ Cada grado puede tener <strong>materias diferentes</strong>. Define cuántas horas/semana requiere cada una — esto guía la generación automática.</div>
+    <div id="gsc-cont"></div>
+
+    <div class="flex fbet mt20 no-print">
+      <button class="btn btn-sec" onclick="goTo(0)">← Bloques</button>
+      <button class="btn btn-acc btn-lg" onclick="goTo(2)">Continuar → Docentes</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ PASO 3 ══ -->
+<div class="section" id="sec2">
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">
+        <div class="card-icon" style="background:rgba(76,175,135,.1)">👨‍🏫</div>
+        <div><h2>Docentes</h2><div class="card-sub">Registra docentes, asigna materias y grados — máx. 28 h/semana por docente</div></div>
+      </div>
+      <button class="btn btn-acc no-print" onclick="openTM()">+ Agregar docente</button>
+    </div>
+    <div class="card" style="background:var(--s3);margin-bottom:16px">
+      <h3 style="font-size:14px;margin-bottom:14px">👥 Tutorías simultáneas</h3>
+      <div class="frow" style="margin-bottom:0">
+        <div class="fg"><label>Sesiones por semana</label><input type="number" id="tutor-hpw" value="1" min="0" max="5" onchange="updTutorCfg(this.value)"></div>
+      </div>
+      <div class="alert al-info mt16" style="margin-bottom:0">La tutoría es una clase especial simultánea para todos los grados generados. Cada docente puede ser tutor de un solo grado y cada grado admite hasta 2 tutores.</div>
+    </div>
+    <div class="alert al-warn">⚠️ Un docente <strong>no puede estar en dos grados al mismo tiempo</strong>. El sistema detecta y bloquea estos conflictos automáticamente.</div>
+    <div id="t-empty" class="empty"><div class="eicon">👨‍🏫</div><p>Sin docentes registrados</p><button class="btn btn-acc mt16 no-print" onclick="openTM()">+ Agregar primero</button></div>
+    <div class="t-cards" id="t-grid" style="display:none"></div>
+    <div class="flex fbet mt20 no-print">
+      <button class="btn btn-sec" onclick="goTo(1)">← Grados</button>
+      <button class="btn btn-acc btn-lg" onclick="goTo(3)">Continuar → Generar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ PASO 4 ══ -->
+<div class="section" id="sec3">
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">
+        <div class="card-icon" style="background:rgba(167,139,250,.1)">🚀</div>
+        <div><h2>Generar Horarios</h2><div class="card-sub">Distribución automática con validación de conflictos y límites</div></div>
+      </div>
+    </div>
+    <div id="pre-chk" class="mb14"></div>
+    <div class="card" style="background:var(--s3);margin-bottom:16px">
+      <h3 style="font-size:14px;margin-bottom:14px">⚙️ Opciones de generación</h3>
+      <div class="frow">
+        <div class="fg"><label>Grados a generar</label>
+          <select id="gen-g" style="width:220px"><option value="all">✅ Todos los grados</option></select>
+        </div>
+        <div class="fg"><label>Distribución</label>
+          <select id="gen-m" style="width:220px">
+            <option value="spread">Distribuir uniforme (L–V)</option>
+            <option value="random">Aleatorio (variado)</option>
+            <option value="front">Concentrar inicio semana</option>
+          </select>
+        </div>
+        <div class="fg"><label>Completar con turnos</label>
+          <select id="turno-en" style="width:220px" onchange="updTurnoCfgEnabled(this.value)">
+            <option value="1">Sí, completar faltantes</option>
+            <option value="0">No</option>
+          </select>
+        </div>
+        <div class="fg"><label>Meta horas/sem docente</label>
+          <input type="number" id="turno-target" min="1" max="40" value="28" onchange="updTurnoCfgTarget(this.value)">
+        </div>
+      </div>
+    </div>
+    <div style="text-align:center;padding:16px 0">
+      <button class="btn btn-green btn-lg" onclick="runGen()" style="padding:14px 44px;font-size:16px;font-family:'Syne',sans-serif;font-weight:700">⚡ GENERAR HORARIOS</button>
+    </div>
+    <div id="gen-log" style="display:none" class="card" style="background:var(--s3)"></div>
+    <div class="flex fbet mt20 no-print">
+      <button class="btn btn-sec" onclick="goTo(2)">← Docentes</button>
+      <button class="btn btn-acc btn-lg" id="btn-view" style="display:none" onclick="goTo(4)">Ver Horarios →</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ PASO 5 ══ -->
+<div class="section" id="sec4">
+  <div class="card" style="margin-bottom:14px">
+    <div class="card-header" style="margin-bottom:0">
+      <div class="card-title">
+        <div class="card-icon" style="background:rgba(45,212,191,.1)">📋</div>
+        <div><h2>Horarios</h2><div class="card-sub">Visualiza, edita manualmente y exporta</div></div>
+      </div>
+      <div class="flex fg-gap no-print">
+        <select id="vmode" onchange="renderView()" style="width:160px">
+          <option value="grade">Por grado</option>
+          <option value="teacher">Por docente</option>
+          <option value="overview">Vista general</option>
+        </select>
+        <button class="btn btn-sec btn-sm" onclick="exportCSV()">📊 CSV</button>
+        <button class="btn btn-sec btn-sm" onclick="window.print()">🖨️ Imprimir</button>
+      </div>
+    </div>
+  </div>
+  <div id="vcont"></div>
+  <div class="flex fbet mt16 no-print">
+    <button class="btn btn-sec" onclick="goTo(3)">← Generar</button>
+    <div id="vlegend" class="flex fg-gap" style="flex-wrap:wrap"></div>
+  </div>
+</div>
+
+</div><!-- /main -->
+
+<!-- ══ TEACHER MODAL ══ -->
+<div class="backdrop" id="tmodal" style="display:none">
+  <div class="modal" style="max-width:660px">
+    <h3>👨‍🏫 <span id="tmod-ttl">Agregar Docente</span></h3>
+    <div class="fg mb14">
+      <label>Nombre completo</label>
+      <input type="text" id="t-name" placeholder="Prof. María García" class="w100">
+    </div>
+    <div class="divider"></div>
+    <h4 style="font-size:13px;color:var(--t2);margin-bottom:10px">Tutoría de grado</h4>
+    <div class="alert al-info mb14" style="font-size:12px">Asigna opcionalmente este docente como tutor de un único grado. Cada grado admite máximo 2 tutores y todas las tutorías se programan en simultáneo.</div>
+    <div class="fg mb14">
+      <label>Grado del que será tutor</label>
+      <select id="t-tutor" class="w100"></select>
+    </div>
+    <div class="divider"></div>
+    <h4 style="font-size:13px;color:var(--t2);margin-bottom:10px">Asignaciones: materia → grados que atiende</h4>
+    <div class="alert al-info mb14" style="font-size:12px">Puede dar la misma materia a varios grados (en bloques distintos). El sistema evitará conflictos de horario automáticamente.</div>
+    <div id="t-ass"></div>
+    <button class="btn btn-sec btn-sm mt8 no-print" onclick="addAR()">+ Agregar materia</button>
+    <div id="t-hwarn" class="alert al-warn mt16" style="display:none"></div>
+    <div class="mfooter">
+      <button class="btn btn-sec" onclick="closeTM()">Cancelar</button>
+      <button class="btn btn-acc" onclick="saveT()">💾 Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ CELL MODAL ══ -->
+<div class="backdrop" id="cmodal" style="display:none">
+  <div class="modal" style="max-width:380px">
+    <h3>✏️ Asignar bloque</h3>
+    <p class="mb14" id="c-info" style="font-size:13px;color:var(--t2)"></p>
+    <div class="fg mb14">
+      <label>Materia</label>
+      <select id="c-subj" onchange="fillCT()" class="w100"><option value="">— Seleccionar —</option></select>
+    </div>
+    <div class="fg mb14">
+      <label>Docente</label>
+      <select id="c-teach" class="w100"><option value="">— Seleccionar —</option></select>
+    </div>
+    <div id="c-warn" class="alert al-err" style="display:none"></div>
+    <div class="mfooter">
+      <button class="btn btn-sec" onclick="closeCM()">Cancelar</button>
+      <button class="btn btn-danger" onclick="clearC()">🗑 Limpiar</button>
+      <button class="btn btn-acc" onclick="saveC()">Asignar</button>
+    </div>
+  </div>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>
